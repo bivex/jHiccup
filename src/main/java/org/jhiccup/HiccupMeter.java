@@ -17,6 +17,7 @@ import java.util.*;
 import java.text.SimpleDateFormat;
 import java.lang.management.*;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.locks.LockSupport;
 
 /**
  * HiccupMeter is a platform pause measurement tool, it is meant to observe
@@ -476,18 +477,21 @@ public class HiccupMeter extends Thread {
 
         public void terminate() {
             doRun = false;
+            LockSupport.unpark(this);
         }
 
         public long getCurrentTimeMsecWithDelay(final long nextReportingTime) throws InterruptedException {
             final long now = System.currentTimeMillis();
-            if (now < nextReportingTime)
-                Thread.sleep(nextReportingTime - now);
-            return now;
+            if (now < nextReportingTime) {
+                final long sleepMs = nextReportingTime - now;
+                Thread.sleep(sleepMs);
+            }
+            return System.currentTimeMillis();
         }
 
-        private void sleepAndAllocate(final long resolutionNsec, final long timeBeforeMeasurement) throws InterruptedException {
+        private void sleepAndAllocate(final long resolutionNsec, final long timeBeforeMeasurement) {
             if (config.resolutionMs != 0) {
-                TimeUnit.NANOSECONDS.sleep(resolutionNsec);
+                LockSupport.parkNanos(resolutionNsec);
                 if (allocateObjects) {
                     lastSleepTimeObj = Long.valueOf(timeBeforeMeasurement);
                 }
@@ -503,28 +507,25 @@ public class HiccupMeter extends Thread {
 
         public void run() {
             final long resolutionNsec = (long)(config.resolutionMs * 1000L * 1000L);
-            try {
-                long shortestObservedDeltaTimeNsec = Long.MAX_VALUE;
-                long timeBeforeMeasurement = System.nanoTime();
-                boolean firstSample = true;
-                while (doRun) {
-                    sleepAndAllocate(resolutionNsec, timeBeforeMeasurement);
-                    final long timeAfterMeasurement = System.nanoTime();
-                    final long deltaTimeNsec = timeAfterMeasurement - timeBeforeMeasurement;
-                    timeBeforeMeasurement = timeAfterMeasurement;
+            long shortestObservedDeltaTimeNsec = Long.MAX_VALUE;
+            long timeBeforeMeasurement = System.nanoTime();
+            boolean firstSample = true;
+            while (doRun) {
+                sleepAndAllocate(resolutionNsec, timeBeforeMeasurement);
+                final long timeAfterMeasurement = System.nanoTime();
+                final long deltaTimeNsec = timeAfterMeasurement - timeBeforeMeasurement;
+                timeBeforeMeasurement = timeAfterMeasurement;
 
-                    if (firstSample) {
-                        firstSample = false;
-                    } else if (deltaTimeNsec >= 0) {
-                        shortestObservedDeltaTimeNsec = updateShortestDelta(deltaTimeNsec, shortestObservedDeltaTimeNsec);
-                        final long hiccupTimeNsec = deltaTimeNsec - shortestObservedDeltaTimeNsec;
-                        recorder.recordValueWithExpectedInterval(hiccupTimeNsec, resolutionNsec);
-                    }
+                if (firstSample) {
+                    firstSample = false;
+                } else if (deltaTimeNsec >= 0) {
+                    shortestObservedDeltaTimeNsec = updateShortestDelta(deltaTimeNsec, shortestObservedDeltaTimeNsec);
+                    final long hiccupTimeNsec = deltaTimeNsec - shortestObservedDeltaTimeNsec;
+                    recorder.recordValueWithExpectedInterval(hiccupTimeNsec, resolutionNsec);
                 }
-            } catch (InterruptedException e) {
-                if (config.verbose) {
-                    log.println("# HiccupRecorder interrupted/terminating...");
-                }
+            }
+            if (config.verbose) {
+                log.println("# HiccupRecorder terminating...");
             }
         }
     }
