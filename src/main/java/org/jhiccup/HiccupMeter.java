@@ -324,16 +324,19 @@ public class HiccupMeter extends Thread {
                     CodeSource agentCodeSource = HiccupMeter.class.getProtectionDomain().getCodeSource();
                     String agentPath = new File(agentCodeSource.getLocation().toURI()).getPath();
 
-                    // Derive controlProcessCommand from our java home, class name, and parsed
-                    // options:
+                    // Derive controlProcessCommand from our java home, class name, and parsed options:
+                    String javaBin = System.getProperty("java.home") + File.separator + "bin" + File.separator + "java";
+                    String quotedJavaBin = javaBin.contains(" ") ? "\"" + javaBin + "\"" : javaBin;
+                    String quotedAgentPath = agentPath.contains(" ") ? "\"" + agentPath + "\"" : agentPath;
+                    String quotedControlLogPath = controlProcessLogFileName.contains(" ") ? "\"" + controlProcessLogFileName + "\"" : controlProcessLogFileName;
+
                     controlProcessCommand =
-                            System.getProperty("java.home") +
-                                    File.separator + "bin" + File.separator + "java" +
+                            quotedJavaBin +
                                     (controlProcessJvmArgsExplicitlySpecified ? " " + controlProcessJvmArgs : "") +
-                                    " -cp " + agentPath +
+                                    " -cp " + quotedAgentPath +
                                     " -Dorg.jhiccup.avoidRecursion=true" +
                                     " " + HiccupMeter.class.getCanonicalName() +
-                                    " -l " + controlProcessLogFileName +
+                                    " -l " + quotedControlLogPath +
                                     " -i " + reportingIntervalMs +
                                     " -d " + startDelayMs +
                                     ((startTimeAtZero) ? " -0" : "") +
@@ -482,36 +485,41 @@ public class HiccupMeter extends Thread {
             return now;
         }
 
+        private void sleepAndAllocate(final long resolutionNsec, final long timeBeforeMeasurement) throws InterruptedException {
+            if (config.resolutionMs != 0) {
+                TimeUnit.NANOSECONDS.sleep(resolutionNsec);
+                if (allocateObjects) {
+                    lastSleepTimeObj = Long.valueOf(timeBeforeMeasurement);
+                }
+            }
+        }
+
+        private long updateShortestDelta(final long deltaTimeNsec, long shortestObserved) {
+            if (deltaTimeNsec < shortestObserved) {
+                return deltaTimeNsec;
+            }
+            return shortestObserved;
+        }
+
         public void run() {
             final long resolutionNsec = (long)(config.resolutionMs * 1000L * 1000L);
             try {
                 long shortestObservedDeltaTimeNsec = Long.MAX_VALUE;
-                long timeBeforeMeasurement = Long.MAX_VALUE;
+                long timeBeforeMeasurement = System.nanoTime();
+                boolean firstSample = true;
                 while (doRun) {
-                    if (config.resolutionMs != 0) {
-                        TimeUnit.NANOSECONDS.sleep(resolutionNsec);
-                        if (allocateObjects) {
-                            // Allocate an object to make sure potential allocation stalls are measured.
-                            lastSleepTimeObj = Long.valueOf(timeBeforeMeasurement);
-                        }
-                    }
+                    sleepAndAllocate(resolutionNsec, timeBeforeMeasurement);
                     final long timeAfterMeasurement = System.nanoTime();
                     final long deltaTimeNsec = timeAfterMeasurement - timeBeforeMeasurement;
                     timeBeforeMeasurement = timeAfterMeasurement;
 
-                    if (deltaTimeNsec < 0) {
-                        // On the very first iteration (which will not time the loop in it's entirety)
-                        // the delta will be negative, and we'll skip recording.
-                        continue;
+                    if (firstSample) {
+                        firstSample = false;
+                    } else if (deltaTimeNsec >= 0) {
+                        shortestObservedDeltaTimeNsec = updateShortestDelta(deltaTimeNsec, shortestObservedDeltaTimeNsec);
+                        final long hiccupTimeNsec = deltaTimeNsec - shortestObservedDeltaTimeNsec;
+                        recorder.recordValueWithExpectedInterval(hiccupTimeNsec, resolutionNsec);
                     }
-
-                    if (deltaTimeNsec < shortestObservedDeltaTimeNsec) {
-                        shortestObservedDeltaTimeNsec = deltaTimeNsec;
-                    }
-
-                    long hiccupTimeNsec = deltaTimeNsec - shortestObservedDeltaTimeNsec;
-
-                    recorder.recordValueWithExpectedInterval(hiccupTimeNsec, resolutionNsec);
                 }
             } catch (InterruptedException e) {
                 if (config.verbose) {

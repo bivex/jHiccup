@@ -43,4 +43,16 @@ public class HiccupMeterTest {
 
         Assert.assertTrue("Log file should exist and be non-empty", tempLog.exists() && tempLog.length() > 0);
     }
+
+    @Test
+    public void testControlProcessCommandQuotingWithSpaces() {
+        String logWithSpace = "/tmp/my custom path/hiccup.log";
+        HiccupMeter.HiccupMeterConfiguration config =
+                new HiccupMeter.HiccupMeterConfiguration(new String[]{"-c", "-l", logWithSpace}, logWithSpace);
+
+        Assert.assertNotNull(config.controlProcessCommand);
+        Assert.assertTrue("Command should properly quote log file with spaces",
+                config.controlProcessCommand.contains("\"" + logWithSpace + ".c\"") ||
+                !config.controlProcessCommand.contains(logWithSpace + ".c "));
+    }
 }

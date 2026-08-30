@@ -313,10 +313,20 @@ http://hdrhistogram.github.io/HdrHistogram/
 
 ----------------------------------------------------------------------------
 
+# Plotting and Visualizing Results
+
+### Modern Interactive HTML5 Plotter (Recommended)
+Open [`jHiccupPlotter.html`](file:///Volumes/External/Code/jHiccup/jHiccupPlotter.html) in any modern web browser. Simply drag and drop your `.hlog` or `.hgrm` file to generate real-time interactive timeline pause charts and logarithmic percentile curves (p50...p99.999%).
+
+### Legacy Excel Spreadsheet Plotter
+Alternatively, open `jHiccupPlotter.xls` in Excel with macros enabled.
+
+----------------------------------------------------------------------------
+
 # Building jHiccup:
 
-jHiccup can be (re)built from source files using Maven:
+jHiccup can be (re)built from source files using modern Maven and Java 8 / 11 / 17 / 21+:
 
-    % mvn package
+    % mvn clean package
 
 [example plot]:https://raw.github.com/giltene/jHiccup/master/examplePlot.png "Example jHiccup plot"
