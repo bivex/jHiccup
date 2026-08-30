@@ -491,7 +491,7 @@ public class HiccupMeter extends Thread {
                         TimeUnit.NANOSECONDS.sleep(resolutionNsec);
                         if (allocateObjects) {
                             // Allocate an object to make sure potential allocation stalls are measured.
-                            lastSleepTimeObj = new Long(timeBeforeMeasurement);
+                            lastSleepTimeObj = Long.valueOf(timeBeforeMeasurement);
                         }
                     }
                     final long timeAfterMeasurement = System.nanoTime();
