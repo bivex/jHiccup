@@ -426,6 +426,16 @@ public class HiccupMeter extends Thread {
             this.start();
         }
 
+        private static void drainStream(final InputStream is) {
+            try {
+                final byte[] buf = new byte[1024];
+                while (is.read(buf) >= 0) {
+                    // Drain stream to prevent pipe deadlock
+                }
+            } catch (IOException ignored) {
+            }
+        }
+
         public void run() {
             try {
                 if (verbose) {
@@ -433,6 +443,16 @@ public class HiccupMeter extends Thread {
                 }
                 final Runtime runtime = Runtime.getRuntime();
                 final Process p = runtime.exec(command);
+                final Thread outDrainer = new Thread(new Runnable() {
+                    public void run() { drainStream(p.getInputStream()); }
+                });
+                final Thread errDrainer = new Thread(new Runnable() {
+                    public void run() { drainStream(p.getErrorStream()); }
+                });
+                outDrainer.setDaemon(true);
+                errDrainer.setDaemon(true);
+                outDrainer.start();
+                errDrainer.start();
                 p.waitFor();
             } catch (Exception e) {
                 System.err.println("HiccupMeter: " + processName + " terminated.");
@@ -449,15 +469,14 @@ public class HiccupMeter extends Thread {
 
         @Override
         public void run() {
-            // Ensure exit when stdin is severed.
+            // Ensure graceful exit when stdin is severed.
             try {
                 while (System.in.read() >= 0) {
                 }
-                System.exit(1);
+                System.exit(0);
             } catch (Exception e) {
-                System.exit(1);
+                System.exit(0);
             }
-
         }
     }
 
@@ -544,11 +563,20 @@ public class HiccupMeter extends Thread {
             Scanner newScanner = null;
             try {
                 newScanner = new Scanner(new File(inputFileName));
+                newScanner.useLocale(Locale.US);
             } catch (FileNotFoundException e) {
                 System.err.println("HiccupMeter: Failed to open input file \"" + inputFileName + "\"");
                 System.exit(-1);
             } finally {
                 scanner = newScanner;
+            }
+        }
+
+        @Override
+        public void terminate() {
+            super.terminate();
+            if (scanner != null) {
+                scanner.close();
             }
         }
 

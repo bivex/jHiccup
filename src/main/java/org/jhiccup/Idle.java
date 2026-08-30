@@ -66,10 +66,10 @@ public class Idle extends Thread {
         }
     }
 
-    public Idle() throws FileNotFoundException {
+    public Idle() {
     }
 
-    public Idle(String[] args) throws FileNotFoundException {
+    public Idle(String[] args) {
         config.parseArgs(args);
     }
 
@@ -95,31 +95,25 @@ public class Idle extends Thread {
     }
 
     public static void main(String[] args) {
-        try {
-            Idle idler = new Idle(args);
+        Idle idler = new Idle(args);
 
+        if (idler.config.verbose) {
+            System.out.print("Executing: idler");
 
-            if (idler.config.verbose) {
-                System.out.print("Executing: idler");
-
-                for (String arg : args) {
-                    System.out.print(" " + arg);
-                }
-                System.out.println("");
+            for (String arg : args) {
+                System.out.print(" " + arg);
             }
-
-            idler.start();
-            
-
-            try {
-                idler.join();
-            } catch (InterruptedException e) {
-                if (idler.config.verbose) System.out.println("idler main() interrupted");
-            }
-            // (if you wanted idler to terminate early, call idler.terminate() )...
-        } catch (FileNotFoundException e) {
-            System.err.println("Failed to open log file.");
+            System.out.println("");
         }
+
+        idler.start();
+
+        try {
+            idler.join();
+        } catch (InterruptedException e) {
+            if (idler.config.verbose) System.out.println("idler main() interrupted");
+        }
+        // (if you wanted idler to terminate early, call idler.terminate() )...
     }
 }
 

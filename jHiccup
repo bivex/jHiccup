@@ -181,10 +181,20 @@ JHICCUP_LognameArg=
 readingLognnameArg=0
 JHICCUP_PidOfProcessToAttacheToArg=
 readingPidOfProcessToAttacheToArg=0
+JHICCUP_SigDigitsArg=
+readingSigDigitsArg=0
+JHICCUP_CfmbArg=
+readingCfmbArg=0
+JHICCUP_XArg=
+readingXArg=0
+JHICCUP_InputFileArg=
+readingInputFileArg=0
 
 verboseOutput=
 logFormatCsv=
 startTimeAtZero=
+allocateObjects=
+fillZeros=
 JHiccupArgs_parse_error=
 JHICCUP_ControlProcessFlag=
 
@@ -207,6 +217,18 @@ for var in $JHiccupArgs; do
 	elif [ $readingPidOfProcessToAttacheToArg -eq 1 ]; then
         JHICCUP_PidOfProcessToAttacheToArg=$var
         readingPidOfProcessToAttacheToArg=0
+	elif [ $readingSigDigitsArg -eq 1 ]; then
+        JHICCUP_SigDigitsArg=$var
+        readingSigDigitsArg=0
+	elif [ $readingCfmbArg -eq 1 ]; then
+        JHICCUP_CfmbArg=$var
+        readingCfmbArg=0
+	elif [ $readingXArg -eq 1 ]; then
+        JHICCUP_XArg=$var
+        readingXArg=0
+	elif [ $readingInputFileArg -eq 1 ]; then
+        JHICCUP_InputFileArg=$var
+        readingInputFileArg=0
 	elif [ $var = "-d" ]; then
 		readingDelayArg=1
 	elif [ $var = "-t" ]; then
@@ -219,6 +241,18 @@ for var in $JHiccupArgs; do
 		readingLognnameArg=1
 	elif [ $var = "-p" ]; then
         readingPidOfProcessToAttacheToArg=1
+	elif [ $var = "-s" ]; then
+        readingSigDigitsArg=1
+	elif [ $var = "-cfmb" ]; then
+        readingCfmbArg=1
+	elif [ $var = "-x" ]; then
+        readingXArg=1
+	elif [ $var = "-f" ]; then
+        readingInputFileArg=1
+	elif [ $var = "-fz" ]; then
+        fillZeros=1
+	elif [ $var = "-a" ]; then
+        allocateObjects=1
 	elif [ $var = "-c" ]; then
 		JHICCUP_ControlProcessFlag=1
 	elif [ $var = "-0" ]; then
@@ -244,6 +278,14 @@ elif [ $readingResolutionArg -eq 1 ]; then
 elif [ $readingLognnameArg -eq 1 ]; then
     JHiccupArgs_parse_error=1
 elif [ $readingPidOfProcessToAttacheToArg -eq 1 ]; then
+    JHiccupArgs_parse_error=1
+elif [ $readingSigDigitsArg -eq 1 ]; then
+    JHiccupArgs_parse_error=1
+elif [ $readingCfmbArg -eq 1 ]; then
+    JHiccupArgs_parse_error=1
+elif [ $readingXArg -eq 1 ]; then
+    JHiccupArgs_parse_error=1
+elif [ $readingInputFileArg -eq 1 ]; then
     JHiccupArgs_parse_error=1
 fi
 
@@ -319,6 +361,30 @@ fi
 
 if [ $JHICCUP_ControlProcessFlag ]; then
 	JHICCUP_Options="${JHICCUP_Options}-c "
+fi
+
+if [ $allocateObjects ]; then
+	JHICCUP_Options="${JHICCUP_Options}-a "
+fi
+
+if [ $fillZeros ]; then
+	JHICCUP_Options="${JHICCUP_Options}-fz "
+fi
+
+if [ $JHICCUP_SigDigitsArg ]; then
+	JHICCUP_Options="${JHICCUP_Options}-s $JHICCUP_SigDigitsArg "
+fi
+
+if [ $JHICCUP_CfmbArg ]; then
+	JHICCUP_Options="${JHICCUP_Options}-cfmb $JHICCUP_CfmbArg "
+fi
+
+if [ $JHICCUP_XArg ]; then
+	JHICCUP_Options="${JHICCUP_Options}-x \"$JHICCUP_XArg\" "
+fi
+
+if [ $JHICCUP_InputFileArg ]; then
+	JHICCUP_Options="${JHICCUP_Options}-f $JHICCUP_InputFileArg "
 fi
 
 if [ $verboseOutput ]; then
