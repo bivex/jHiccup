@@ -212,53 +212,72 @@ public class HiccupMeter extends Thread {
             return logFileName;
         }
 
+        public static String stripQuotes(String s) {
+            if (s == null) return "";
+            s = s.trim();
+            if (s.startsWith("\"") && s.endsWith("\"") && s.length() >= 2) {
+                s = s.substring(1, s.length() - 1).trim();
+            }
+            if (s.startsWith("\"")) {
+                s = s.substring(1);
+            }
+            if (s.endsWith("\"")) {
+                s = s.substring(0, s.length() - 1);
+            }
+            return s.trim();
+        }
+
         public HiccupMeterConfiguration(final String[] args, String defaultLogFileName) {
             logFileName = defaultLogFileName;
             try {
                 for (int i = 0; i < args.length; ++i) {
-                    if (args[i].equals("-v")) {
+                    final String arg = stripQuotes(args[i]);
+                    if (arg.isEmpty()) {
+                        continue;
+                    }
+                    if (arg.equals("-v")) {
                         verbose = true;
-                    } else if (args[i].equals("-0")) {
+                    } else if (arg.equals("-0")) {
                         startTimeAtZero = true;
-                    } else if (args[i].equals("-a")) {
+                    } else if (arg.equals("-a")) {
                         allocateObjects = true;
-                    } else if (args[i].equals("-p")) {
+                    } else if (arg.equals("-p")) {
                         attachToProcess = true;
-                        pidOfProcessToAttachTo = args[++i];                 // lgtm [java/index-out-of-bounds]
-                    } else if (args[i].equals("-j")) {
-                        agentJarFileName = args[++i];                       // lgtm [java/index-out-of-bounds]
-                    } else if (args[i].equals("-terminateWithStdInput")) {
+                        pidOfProcessToAttachTo = stripQuotes(args[++i]);
+                    } else if (arg.equals("-j")) {
+                        agentJarFileName = stripQuotes(args[++i]);
+                    } else if (arg.equals("-terminateWithStdInput")) {
                         terminateWithStdInput = true;
-                    } else if (args[i].equals("-i")) {
-                        reportingIntervalMs = Long.parseLong(args[++i]);    // lgtm [java/index-out-of-bounds]
-                    } else if (args[i].equals("-t")) {
-                        runTimeMs = Long.parseLong(args[++i]);              // lgtm [java/index-out-of-bounds]
-                    } else if (args[i].equals("-d")) {
-                        startDelayMs = Long.parseLong(args[++i]);           // lgtm [java/index-out-of-bounds]
+                    } else if (arg.equals("-i")) {
+                        reportingIntervalMs = Long.parseLong(stripQuotes(args[++i]));
+                    } else if (arg.equals("-t")) {
+                        runTimeMs = Long.parseLong(stripQuotes(args[++i]));
+                    } else if (arg.equals("-d")) {
+                        startDelayMs = Long.parseLong(stripQuotes(args[++i]));
                         startDelayMsExplicitlySpecified = true;
-                    } else if (args[i].equals("-r")) {
-                        resolutionMs = Double.parseDouble(args[++i]);       // lgtm [java/index-out-of-bounds]
-                    } else if (args[i].equals("-s")) {
-                        numberOfSignificantValueDigits = Integer.parseInt(args[++i]);   // lgtm [java/index-out-of-bounds]
-                    } else if (args[i].equals("-l")) {
-                        logFileName = args[++i];                            // lgtm [java/index-out-of-bounds]
+                    } else if (arg.equals("-r")) {
+                        resolutionMs = Double.parseDouble(stripQuotes(args[++i]));
+                    } else if (arg.equals("-s")) {
+                        numberOfSignificantValueDigits = Integer.parseInt(stripQuotes(args[++i]));
+                    } else if (arg.equals("-l")) {
+                        logFileName = stripQuotes(args[++i]);
                         logFileExplicitlySpecified = true;
-                    } else if (args[i].equals("-f")) {
-                        inputFileName = args[++i];                          // lgtm [java/index-out-of-bounds]
+                    } else if (arg.equals("-f")) {
+                        inputFileName = stripQuotes(args[++i]);
                         lowestTrackableValue = 1L; // drop to ~1 nsec best-case resolution when processing files
-                    } else if (args[i].equals("-fz")) {
+                    } else if (arg.equals("-fz")) {
                         fillInZerosInInputFile = true;
-                    } else if (args[i].equals("-c")) {
+                    } else if (arg.equals("-c")) {
                         launchControlProcess = true;
-                    } else if (args[i].equals("-cfmb")) {
-                        launchControlProcessHeapSizeMBFilter = Long.parseLong(args[++i]);   // lgtm [java/index-out-of-bounds]
-                    } else if (args[i].equals("-x")) {
-                        controlProcessJvmArgs = args[++i];                  // lgtm [java/index-out-of-bounds]
+                    } else if (arg.equals("-cfmb")) {
+                        launchControlProcessHeapSizeMBFilter = Long.parseLong(stripQuotes(args[++i]));
+                    } else if (arg.equals("-x")) {
+                        controlProcessJvmArgs = stripQuotes(args[++i]);
                         controlProcessJvmArgsExplicitlySpecified = true;
-                    } else if (args[i].equals("-o")) {
+                    } else if (arg.equals("-o")) {
                         logFormatCsv = true;
                     } else {
-                        throw new Exception("Invalid args: " + args[i]);
+                        throw new Exception("Invalid args: " + arg);
                     }
                 }
 
@@ -861,8 +880,19 @@ public class HiccupMeter extends Thread {
         return hiccupMeter;
     }
 
+    private static String[] parseArgsString(String argsString) {
+        if (argsString == null) {
+            return new String[0];
+        }
+        final String stripped = HiccupMeterConfiguration.stripQuotes(argsString);
+        if (stripped.isEmpty()) {
+            return new String[0];
+        }
+        return stripped.split("[ ,;]+");
+    }
+
     public static void agentmain(String argsString, java.lang.instrument.Instrumentation inst) {
-        final String[] args = ((argsString != null) && !argsString.equals("")) ? argsString.split("[ ,;]+") : new String[0];
+        final String[] args = parseArgsString(argsString);
         final String avoidRecursion = System.getProperty("org.jhiccup.avoidRecursion");
         if (avoidRecursion != null) {
             return; // If this is a -c invocation, we do not want the agent to do anything...
@@ -871,7 +901,7 @@ public class HiccupMeter extends Thread {
     }
 
     public static void premain(String argsString, java.lang.instrument.Instrumentation inst) {
-        final String[] args = ((argsString != null) && !argsString.equals("")) ? argsString.split("[ ,;]+") : new String[0];
+        final String[] args = parseArgsString(argsString);
         final String avoidRecursion = System.getProperty("org.jhiccup.avoidRecursion");
         if (avoidRecursion != null) {
             return; // If this is a -c invocation, we do not want the agent to do anything...
