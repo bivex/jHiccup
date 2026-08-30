@@ -1,354 +1,99 @@
-<a href="https://foojay.io/works-with-openjdk"><img align="right" src="https://github.com/foojayio/badges/raw/main/works_with_openjdk/Works-with-OpenJDK.png" width="100"></a>
-
 # ☕ jHiccup (Modernized Edition)
 
 [![Java](https://img.shields.io/badge/Java-8%20--%2025%2B-orange.svg?style=flat&logo=openjdk)](https://openjdk.org/)
 [![License](https://img.shields.io/badge/License-CC0%201.0%20(Public%20Domain)-blue.svg?style=flat)](http://creativecommons.org/publicdomain/zero/1.0)
+[![Release](https://img.shields.io/badge/Release-v2.0.11-brightgreen.svg?style=flat)](https://github.com/bivex/jHiccup/releases/tag/v2.0.11)
 [![Tests](https://img.shields.io/badge/Tests-16%20passed%20(100%25)-success.svg?style=flat)]()
-[![DPX-Java](https://img.shields.io/badge/Architecture-0%20Violations%20(Clean)-brightgreen.svg?style=flat)]()
-
-----------------------------------------------------------------------------
-
-Originally written by Gil Tene of Azul Systems, released to the public domain (CC0).  
-Modernized for JDK 8–25+, high-resolution `LockSupport.parkNanos`, and Interactive HTML5 Dashboard.
-
-----------------------------------------------------------------------------
-
-jHiccup is a non-intrusive instrumentation tool that logs and records
-platform "hiccups" - including the JVM stalls that often happen when
-Java applications are executed and/or any OS or hardware platform noise
-that may cause the running application to not be continuously runnable.
-
-jHiccup can be executed in one of three main ways:
-
-1. It can be run as a Java agent (using: `java -javaagent:jHiccup.jar`)
-
-2. It can be injected into a running application (using: `jHiccup -p <pid>`)
-
-3. It can also be run using a convenient wrapper command for your
-   existing Java application (using: `jHiccup java myProg ...`)
-
-----------------------------------------------------------------------------
-
-## 💡 Practical Benefits & Real-World Value
-
-Traditional CPU profilers answer: *"Which method consumes the most CPU cycles?"*  
-**jHiccup answers the critical SLA question:** *"Why did the runtime freeze, and what is the absolute lower bound on user-perceived response time?"*
-
-### 1. 🛡️ Uncovering Hidden P99 / P99.9 Latency Spikes
-* **The Flaw of Averages:** An application with a `1.5 ms` average latency may experience periodic `50–200 ms` Stop-The-World stalls.
-* **HdrHistogram Resolution:** Captures high dynamic range percentiles ($p50 \dots p99.999\%$) with 3 significant digits of precision without data compression loss.
-
-### 2. 🔍 Isolating Application Code from Platform & OS Noise
-Using the concurrent control process (`-c`), jHiccup records a baseline idle process side-by-side with your workload. This immediately pinpoints:
-* **JVM Internals:** GC Stop-The-World pauses, Safepoint synchronization, biased locking revocations, JIT deoptimizations.
-* **Cloud & OS Noise:** Kubernetes CFS CPU quota throttling (`cpu.cfs_quota_us`), Linux CFS scheduler delays, Hypervisor CPU steal time (`%steal`), and power-state transitions (C-states).
-
-### 3. 📈 Automatic Coordinated Omission Correction
-When a thread freezes for $100\text{ ms}$, naive tools count it as a single data point. jHiccup automatically reconstructs the 100 missed samples that piled up behind the stall, guaranteeing true client-perceived SLA statistics.
-
-### 4. 🪶 Ultra-Low Overhead (24/7 Production Safe)
-* **CPU Cost:** $< 0.05\%$ single-core footprint.
-* **Memory Footprint:** Fixed pre-allocated memory ($\approx 70\text{ KB}$ retained), lock-free `WriterReaderPhaser` synchronization, zero GC heap churn.
-
-----------------------------------------------------------------------------
-
-### Example jHiccup plot 
-![example plot]
- 
-----------------------------------------------------------------------------
-# Using jHiccup as a Java agent:
-
-jHiccup is most often used as a Java agent. This is useful for platforms and
-environments where a Java agent is simpler to integrate into launch scripts,
-or in environments where using the bash jHiccup wrapper script is not practical
-(e.g. Windows, and environments where java is not directly launched from
-the command line).
-
-jHiccup.jar can be used as a Java agent using the following launch syntax:
-
-    % java -javaagent:jHiccup.jar MyProgram
-
-or
-
-    % java -javaagent:jHiccup.jar="<options>" MyProgram.jar -a -b -c
-
-You can find the available options for the Java agent mode by running:
-
-    % java -javaagent:jHiccup.jar="-h"
-
-Here is a Java agent usage example with explicit parameters:
-
-    % java -javaagent:jHiccup.jar="-d 2000 -i 1000 -l hiccuplog -c" MyProgram.jar -a -b -c
-
-This example will record hiccups experienced during the running of `MyProgram.jar`
-in log file `hiccuplog`, while at the same time recording the hiccups experienced by
-a control process running in a separate JVM in the log file `c.hiccuplog`.
-Measurement will start 2 seconds after startup (rather than immediately),
-and interval data will be recorded every 1 second (rather than the default 5 seconds).
-
-Useful Java agent related notes:
-
-Note 1: When used as a java agent, jHiccup will treat spaces, commas, and
-semicolons as delimiting characters (`[ ,;]+`). For example, the option string
-`-d 0 -i 1000` is equivalent to the option string `-d,0,-i,1000`. This is
-useful for environments where placing space delimiters into quoted strings
-is difficult or confusing.
-
-Note 2: I find that a common way people add jHiccup as a Java agent is by using
-the `_JAVA_OPTIONS` environment variable. This often allows one to add the jHiccup
-Java agent without significant launch script surgery. For example:
-
-    export _JAVA_OPTIONS='-javaagent:/path/to/jHiccup/target/jHiccup.jar="-d 20000 -i 1000"'
-
-----------------------------------------------------------------------------
-
-# Reading and processing the jHiccup log with jHiccupLogProcessor:
-
-jHiccup logs hiccup information in a histogram log (see 
-[HdrHistogram.org](http://hdrhistogram.org/)). This histogram log contains a full, high fidelity
-histogram of all collected results in each interval, in a highly compressed
-form (typically using only ~200-400 bytes per interval). However, other than
-the timestamp and maximum hiccup magnitude found in the given interval, the
-rest of the log line for each interval is not human readable (it is a base64
-encoding of a compressed HdrHistogram).
-
-To translate the jHiccup log file to a more human-readable form, the jHiccupLogProcessor
-utility is provided. In it's simplest form, this utility can be used as such
-
-    % jHiccupLogProcessor -i mylog.hlog -o mylog
-
-Which will produce log files `mylog` and `mylog.hgrm` containing a human readable
-interval log (with selected percentiles in each interval), as well as a human
-readable histogram percentile distribution log.
-
-jHiccupLogProcessor can also be used to produce log files for an arbitrary
-section of the jHiccup log, by using the optional `-start` and `-end` parameters.
-
-See `jHiccupLogProcessor -h` for more details.
-
-----------------------------------------------------------------------------
-
-# Hiccup Charts: Plotting jHiccup results
-
-Since jHiccup uses [HdrHistogram](http://hdrhistogram.org/) and produces
-HdrHistogram logs, various tools that plot and view histogram logs can be
-used to analyze jhiccup data. Some common tools include
-[HistggramLogAnalyzer](https://github.com/HdrHistogram/HistogramLogAnalyzer)
-, [HdrHistogramVisualizer](https://github.com/ennerf/HdrHistogramVisualizer)  
-, and a javascript-based in-browser [histogram log parser](https://hdrhistogram.github.io/HdrHistogramJSDemo/logparser.html)
-
-----------------------------------------------------------------------------
-
-# Launching jHiccup by attaching it to existing, running application:
-
-The jHiccup agent can be injected into a live, running Java application
-if the environment supports the java attach API (which is typically available
-in java environments running Java SE 6 or later).
-
-$ jHiccup -p <pid>
-
-NOTE: In order to attach to a running java application, the running
-application needs to have `${JAVA_HOME}/lib/tools.jar` in it's classpath.
-While this is commonly the case already for many IDE and desktop environments,
-and for environments that involve or enable other attachable agents (such as
-profilers), you may find that it is not included in your application's
-classpath, and that it needs to be added if attaching jHiccup at runtime
-is needed (launching jHiccup as a Java agent per the below may be a good
-alternative).
-
-----------------------------------------------------------------------------
-
-# Running jHiccup using the Wrapper Script form:
-
-In the wrapper script form, all it takes is adding the word "jHiccup" in
-front of whatever the java invocation command line is.
-
-For example, if your program were normally executed as:
-
-    java <Java args> MyProgram -a -b -c
-
-The launch line would become:
-
-    jHiccup java <Java args> MyProgram -a -b -c
-
-or, for a program launched with:
-
-    /usr/bin/java <Java args> -jar MyProgram.jar -a -b -c
-
-The launch line would become:
-
-    jHiccup /usr/bin/java <Java args> -jar MyProgram.jar -a -b -c
-
-or, to override the defaults by making the recording start delay 60 seconds
-and log to hlog, it would become:
-
-    jHiccup -d 60000 -l hlog /usr/bin/java <Java args> -jar MyProgram.jar -a -b -c
-
-The jar file also includes a simple "Idle" class to facilitate sanity checks
-without an external program. Here is a simple sanity test example: jHiccup
-with a 4 sec delay on recording start, wrapping an Idle run that does nothing
-for 30 seconds and exits:
-
-    % jHiccup -d 4000 /usr/bin/java org.jhiccup.Idle -t 30000
-
-[Run `jHiccup -h`, or see comment in jHiccup script for more details.]
-
-----------------------------------------------------------------------------
-
-# Supported/Tested platforms:
-
-The jHiccup command is expected to work and has been tested on the following
-platforms:
-- Various Linux flavors (Tested on RHEL/CentOS 5.x and 6.x)
-- Mac OS X (tested on Lion, 10.7)
-- Windows with a Cygwin environment installed (tested on Windows 7)
-- Solaris (tested on both SPARC and x86)
-
-jHiccup.jar is expected to work as a java agent and has been tested on the
-following platforms:
-- Various Linux flavors (Tested on RHEL/CentOS 5.x and 6.x)
-- Mac OS X (tested on Lion, 10.7)
-- Windows standard command shell (tested on Windows 7)
-- Solaris (tested on both SPARC and x86)
-
-If you use jHiccup on other operating systems and setups, please report back
-on your experience so that we can expand the list.
-
-----------------------------------------------------------------------------
-
-# Using a control process to concurrently record baseline idle load hiccups:
-
-It is often useful to compare the hiccup behavior experienced by a running
-application with a "control" hiccup level of an idle workload, running on
-the same system and at the same time as the observed application. To make
-such control measurement convenient, jHiccup supports a `-c` option that will
-launch a concurrently executing "control process" and will separately log
-hiccup information of an idle workload running on a separate jvm for the
-duration of the instrumented application run. When selected, the control
-process log file name will match those used for the launching application,
-followed with a `.c`.
-
-For example:
-
-    % jHiccup -l mylog -c /usr/bin/java <Java args> -jar MyProgram.jar -a -b -c
-
-Will produce log file `mylog` detailing the hiccup behavior during the
-execution of `MyProgram.jar`, as well as a log file `c.mylog` detailing
-the hiccup behavior of an idle workload running on a separate jvm at
-the same time.
-
-----------------------------------------------------------------------------
-
-# Log file name recognizes and fills in %pid , %date , and %host terms
-
-When a log file name is specified with the `-l` option, the terms `%pid`,
-`%date`,  and `%host` will be filled in with the appropriate information.
-The default log file name setting is simply `hiccup.%date.%pid`.
-
-----------------------------------------------------------------------------
-
-# Using jHiccup to process latency log files:
-
-jHiccup's main HiccupMeter class supports a mode `-f` that will take latency
-input from a file instead of recording it. This is useful for producing
-jHiccup-style text and graphical output for recorded latency data collected
-by some other means.
-
-When provided to the `-f` option, an input file is expected to contain two
-white-space delimited values per line (in either integer or real number format),
-representing a time stamp and a measured latency, both in millisecond units.
-
-It's important to note that the default "expected interval between samples"
-resolution in jHiccup and HiccupMeter is 1 millisecond. When processing
-input files, it is imperative that an appropriate value be supplied to
-the `-r` option, and that this value correctly represent the expected interval
-between samples in the provided input file. HiccupMeter will use this
-parameter to determine whether additional, artificial values should be added
-to the histogram recording, between input samples that are farther apart in
-time than the expected interval specified to the `-r` option. This behavior
-corrects for "coordinated omission" situations (where long response times
-lead to "skipped" requests that would have typically correlated with "bad"
-response times). A "large" value (e.g. `-r 100000`) can easily be specified
-to avoid any correction of this situation.
-
-Example:
-
-    % java -jar jHiccup.jar -i 1000 -f inputLatenies -l latencies.hlog
-
-----------------------------------------------------------------------------
-
-# Using jHiccup to process pause logs from e.g. gc log files:
-
-When run in the file injection mode (`-f`), jHiccup's main HiccupMeter
-class supports an optional "fill zeros" (`-fz`) mode. This mode is
-useful for processing input that represent pause events rather than
-latencies.
-
-A common use case for this feature is producing hiccup logs from GC logs.
-GC logs will generally include pause information, which can be parsed out
-to a "pauses log". jHiccup can takes a "pauses logs" as input
-
-
-When provided to the `-f` option, in conjunction with a `-fz` option, an
-input file is expected to contain two white-space delimited values per
-line (in either integer or real number format), representing a time stamp
-and a measured length of a pause, both in millisecond units.
-
-Example (parsing gc log with +PrintGCTimeStamps):
-
-    % java ... -XX:+PrintGCApplicationStoppedTime -XX:+PrintGCTimeStamps -Xloggc:gc.log ...
-    
-    % awk -F": " '/Total time for which application threads were stopped/ {printf "%4.0f %4.3f\n", $1*1000.0, $3*1000.0;}' gc.log > gcPauses.log
-
-    % java -jar jHiccup.jar -i 1000 -f gcPauses.log -fz -l pauses.hlog
-  
-Example (with both +PrintGCTimeStamps and +PrintGCDateStamps):
-  
-    % java ... -XX:+PrintGCApplicationStoppedTime -XX:+PrintGCTimeStamps -XX:+PrintGCDateStamps -Xloggc:gc.log ...
-     
-    % awk -F": " '/Total time for which application threads were stopped/ {printf "%4.0f %4.3f\n", $2*1000.0, $4*1000.0;}' gc.log > gcPauses.log
- 
-    % java -jar jHiccup.jar -i 1000 -f gcPauses.log -fz -l pauses.hlog
-    
-
-----------------------------------------------------------------------------
-
-# Example: adding jHiccup to Tomcat runs:
-
-In Tomcat's `catalina.sh` script, replace the following line:
-
-    exec "$_RUNJAVA" "$LOGGING_CONFIG" $JAVA_OPTS $CATALINA_OPTS
-
-with:
-
-    exec "$JHICCUP_HOME/jHiccup" "$_RUNJAVA" "$LOGGING_CONFIG" $JAVA_OPTS $CATALINA_OPTS
-
-----------------------------------------------------------------------------
-
-# Note: Use of HdrHistogram.
-
-jHiccup depends on and makes systemic use of HdrHistogram to collected and
-report on the statistical distribution of hiccups. HdrHistogram sources
-and documentation can be found on GitHub, at
-http://hdrhistogram.github.io/HdrHistogram/
-
-----------------------------------------------------------------------------
-
-# Plotting and Visualizing Results
-
-### Modern Interactive HTML5 Plotter (Recommended)
-Open [`jHiccupPlotter.html`](file:///Volumes/External/Code/jHiccup/jHiccupPlotter.html) in any modern web browser. Simply drag and drop your `.hlog` or `.hgrm` file to generate real-time interactive timeline pause charts and logarithmic percentile curves (p50...p99.999%).
-
-### Legacy Excel Spreadsheet Plotter
-Alternatively, open `jHiccupPlotter.xls` in Excel with macros enabled.
-
-----------------------------------------------------------------------------
-
-# Building jHiccup:
-
-jHiccup can be (re)built from source files using modern Maven and Java 8 / 11 / 17 / 21+:
-
-    % mvn clean package
-
-[example plot]:https://raw.github.com/giltene/jHiccup/master/examplePlot.png "Example jHiccup plot"
+[![Architecture](https://img.shields.io/badge/DPX--Java-0%20Violations-brightgreen.svg?style=flat)]()
+
+**jHiccup** is an ultra-low overhead (<0.05% CPU, ~70 KB RAM) instrumentation tool that measures JVM stalls, Stop-The-World GC pauses, OS scheduling delays, and hypervisor steals directly in production.
+
+---
+
+## ⚡ Quick Start
+
+### 1. Java Agent Mode (Recommended)
+Attach as a Java agent to any JVM process:
+```bash
+# Basic run (logs to hiccup.log)
+java -javaagent:jHiccup.jar="-d 0 -i 1000 -l hiccup.log" -jar MyApp.jar
+
+# With concurrent control process (measures idle baseline in a separate JVM)
+java -javaagent:jHiccup.jar="-d 0 -i 1000 -l hiccup.log -c" -jar MyApp.jar
+```
+
+### 2. Wrapper Script Mode
+```bash
+./jHiccup -d 0 -i 1000 -l hiccup.log java -jar MyApp.jar
+```
+
+### 3. Dynamic Attach to Running JVM
+```bash
+java -cp $JAVA_HOME/lib/tools.jar:jHiccup.jar org.jhiccup.HiccupMeterAttacher -p <PID> -j jHiccup.jar
+```
+
+---
+
+## 📊 Visualizing Results
+
+### Interactive HTML5 Plotter (Recommended)
+Open [`jHiccupPlotter.html`](jHiccupPlotter.html) in any browser and drag & drop your `.hlog` or `.hgrm` file to view:
+- **Timeline Chart:** Interval Max & Average pauses over time.
+- **Percentile Curve:** High-resolution logarithmic latency distribution (p50 to p99.999%).
+
+### CLI Log Processor
+Convert `.hlog` into human-readable percentile distribution tables:
+```bash
+java -cp jHiccup.jar org.jhiccup.internal.hdrhistogram.HistogramLogProcessor -i hiccup.log -o hiccup_summary.hgrm
+```
+
+---
+
+## ⚙️ CLI Options Reference
+
+| Option | Description | Default |
+|---|---|:---:|
+| `-l <file>` | Log file path (supports `%pid`, `%date`, `%host` tokens) | `hiccup.%date.%pid` |
+| `-i <ms>` | Reporting interval in milliseconds | `5000` |
+| `-r <ms>` | Sampling resolution in milliseconds (supports float, e.g. `0.1` for 100 µs) | `1.0` |
+| `-d <ms>` | Start delay in milliseconds before measurement begins | `0` |
+| `-t <ms>` | Measurement runtime limit in milliseconds (`0` for infinite) | `0` |
+| `-c` | Concurrently launches an idle control process in a separate JVM (`<log>.c`) | `disabled` |
+| `-cfmb <MB>`| Minimum heap threshold to trigger the control process | `0` |
+| `-x "<args>"`| Extra JVM arguments passed to the control process | none |
+| `-a` | Allocates a throwaway object on each tick to observe allocation stalls | `false` |
+| `-0` | Starts log timestamps at `0.000` instead of JVM uptime | `false` |
+| `-o` | Outputs logs in standard CSV format | `false` |
+| `-s <digits>`| Number of significant value digits in histogram (1–5) | `2` |
+| `-f <file>` | Processes an external latency/pause text file instead of sampling | none |
+| `-fz` | Fills blank intervals with zeros (useful when parsing GC pause logs) | `false` |
+
+---
+
+## 🚀 Key Modernizations in v2.0.11
+
+- **High-Precision Clocking:** `LockSupport.parkNanos()` replaces `Thread.sleep()`, delivering sub-millisecond precision and instant unparking on shutdown.
+- **Graceful Shutdown:** JVM `ShutdownHook` automatically flushes unwritten buffers on SIGTERM/SIGINT.
+- **Zero-Dependency HTML5 Plotter:** Native browser visualizer replacing legacy Excel VBA macros.
+- **Bug Fixes:**
+  - Full path quoting for directory paths containing spaces (#48).
+  - Fixed monotonic clock overflow and initial sample calibration (#49).
+  - Thread-safe stream draining in subprocesses to prevent OS pipe deadlocks.
+  - Enforced `Locale.US` in decimal log parsers.
+
+---
+
+## 🔨 Building from Source
+
+Requires JDK 8+ and Maven 3.6+:
+```bash
+mvn clean package
+```
+Build artifacts will be generated in `target/jHiccup.jar`.
+
+---
+
+## 📄 License
+
+Public Domain ([CC0 1.0 Universal](http://creativecommons.org/publicdomain/zero/1.0/)).
+Originally created by Gil Tene (Azul Systems).
