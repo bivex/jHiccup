@@ -36,6 +36,8 @@ java -cp $JAVA_HOME/lib/tools.jar:jHiccup.jar org.jhiccup.HiccupMeterAttacher -p
 
 ## 📊 Visualizing Results
 
+![jHiccup Modern Plot](examplePlot.png)
+
 ### Interactive HTML5 Plotter (Recommended)
 Open [`jHiccupPlotter.html`](jHiccupPlotter.html) in any browser and drag & drop your `.hlog` or `.hgrm` file to view:
 - **Timeline Chart:** Interval Max & Average pauses over time.
