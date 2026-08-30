@@ -427,7 +427,8 @@ public class HiccupMeter extends Thread {
                 if (verbose) {
                     log.println("# HiccupMeter Executing " + processName + " command: " + command);
                 }
-                final Process p = Runtime.getRuntime().exec(command);
+                final Runtime runtime = Runtime.getRuntime();
+                final Process p = runtime.exec(command);
                 p.waitFor();
             } catch (Exception e) {
                 System.err.println("HiccupMeter: " + processName + " terminated.");
@@ -561,55 +562,37 @@ public class HiccupMeter extends Thread {
             return -1;
         }
 
+        private void fillBlankTicks(final long fromTime, final long toTime) {
+            final long numberOfTicks = (long) ((toTime - fromTime) / config.resolutionMs);
+            if (config.fillInZerosInInputFile && (numberOfTicks > 0)) {
+                recorder.recordValueWithCount(0L, numberOfTicks);
+            }
+        }
+
+        private void recordHiccupValue() {
+            fillBlankTicks(prevTimeMsec, msecThatPrecedesInputLine);
+            final long hiccupTimeNsec = (long) (inputLineHiccupTimeMsec * 1000000.0);
+            recorder.recordValueWithExpectedInterval(hiccupTimeNsec, (long) (config.resolutionMs * 1000000L));
+            prevTimeMsec = inputLineTimeMsec;
+        }
+
         @Override
         public long getCurrentTimeMsecWithDelay(final long nextReportingTime) throws InterruptedException {
-            // The following loop will terminate either at the next reporting time, or when input is exhausted:
             do {
                 if (nextReportingTime < msecThatPrecedesInputLine) {
-                    // Nothing in the input before the nextReportingTime:
-
-                    long numberOfTicksBeforeNextReportingTime =
-                            (long) ((nextReportingTime - prevTimeMsec) / config.resolutionMs);
-                    if (config.fillInZerosInInputFile && (numberOfTicksBeforeNextReportingTime > 0)) {
-                        // fill in blank time between prevTimeMsec and nextReportingTime with zero values:
-                        recorder.recordValueWithCount(0L, numberOfTicksBeforeNextReportingTime);
-                    }
-                    
-                    // Indicate that we've processed input up to nextReportingTime:
+                    fillBlankTicks(prevTimeMsec, nextReportingTime);
                     prevTimeMsec = nextReportingTime;
-
                     return nextReportingTime;
                 } else if (msecThatPrecedesInputLine >= prevTimeMsec) {
-                    // Process previously read input:
-                    long numberOfTicksBeforeInputHiccup =
-                            (long) ((msecThatPrecedesInputLine - prevTimeMsec) / config.resolutionMs);
-                    if (config.fillInZerosInInputFile && (numberOfTicksBeforeInputHiccup > 0)) {
-                        // Fill in blank time between previously processed time and the hiccup with zero values:
-                        recorder.recordValueWithCount(0L, numberOfTicksBeforeInputHiccup);
-                    }
-
-                    final long hiccupTimeNsec = (long) (inputLineHiccupTimeMsec * 1000000.0);
-                    recorder.recordValueWithExpectedInterval(hiccupTimeNsec, (long) (config.resolutionMs * 1000000L));
-
-                    // indicate that we've processed input up to the end of the previously read line:
-                    prevTimeMsec = inputLineTimeMsec;
+                    recordHiccupValue();
                 }
-                // Read next line:
             } while (processInputLine(scanner, recorder) >= 0);
 
             if (!reportedAfterTerminate) {
-                // Fill last report with zeros if/as needed:
-                long numberOfTicksBeforeNextReportingTime =
-                        (long) ((nextReportingTime - prevTimeMsec) / config.resolutionMs);
-                if (config.fillInZerosInInputFile && (numberOfTicksBeforeNextReportingTime > 0)) {
-                    // fill in blank time between prevTimeMsec and nextReportingTime with zero values:
-                    recorder.recordValueWithCount(0L, numberOfTicksBeforeNextReportingTime);
-                }
-
+                fillBlankTicks(prevTimeMsec, nextReportingTime);
                 reportedAfterTerminate = true;
                 return nextReportingTime;
             }
-            // Input exhausted :
             return -1;
         }
 
@@ -635,50 +618,27 @@ public class HiccupMeter extends Thread {
         return versionString;
     }
 
-    @Override
-    public void run() {
-        final SingleWriterRecorder recorder =
-                new SingleWriterRecorder(
-                        config.lowestTrackableValue,
-                        config.highestTrackableValue,
-                        config.numberOfSignificantValueDigits
-                );
-
-        Histogram intervalHistogram = null;
-
-        HiccupRecorder hiccupRecorder;
-
-        final long uptimeAtInitialStartTime = ManagementFactory.getRuntimeMXBean().getUptime();
-        long now = System.currentTimeMillis();
-        long jvmStartTime = now - uptimeAtInitialStartTime;
-        long reportingStartTime = jvmStartTime;
-
+    private HiccupRecorder initHiccupRecorder(final SingleWriterRecorder recorder) {
         if (config.inputFileName == null) {
-            // Normal operating mode.
-            // Launch a hiccup recorder, a process termination monitor, and an optional control process:
-            hiccupRecorder = this.createHiccupRecorder(recorder);
+            final HiccupRecorder hiccupRecorder = this.createHiccupRecorder(recorder);
             if (config.terminateWithStdInput) {
                 new TerminateWithStdInputReader();
             }
             if (config.controlProcessCommand != null) {
                 new ExecProcess(config.controlProcessCommand, "ControlProcess", log, config.verbose);
             }
-        } else {
-            // Take input from file instead of sampling it ourselves.
-            // Launch an input hiccup recorder, but no termination monitoring or control process:
-            hiccupRecorder = new InputRecorder(recorder, config.inputFileName);
+            return hiccupRecorder;
         }
+        return new InputRecorder(recorder, config.inputFileName);
+    }
 
-        histogramLogWriter.outputComment("[Logged with " + getVersionString() + "]");
-        histogramLogWriter.outputLogFormatVersion();
-
-        Thread shutdownHook = null;
+    private Thread registerShutdownHook(final SingleWriterRecorder recorder) {
         try {
             final Thread hook = new Thread(new Runnable() {
                 @Override
                 public void run() {
                     try {
-                        Histogram finalHistogram = recorder.getIntervalHistogram();
+                        final Histogram finalHistogram = recorder.getIntervalHistogram();
                         if (finalHistogram != null && finalHistogram.getTotalCount() > 0) {
                             histogramLogWriter.outputIntervalHistogram(finalHistogram);
                         }
@@ -689,103 +649,139 @@ public class HiccupMeter extends Thread {
                     }
                 }
             }, "HiccupMeterShutdownHook");
-            Runtime.getRuntime().addShutdownHook(hook);
-            shutdownHook = hook;
+            final Runtime runtime = Runtime.getRuntime();
+            runtime.addShutdownHook(hook);
+            return hook;
         } catch (Throwable ignored) {
+            return null;
         }
+    }
+
+    private void unregisterShutdownHook(final Thread shutdownHook) {
+        if (shutdownHook != null) {
+            try {
+                final Runtime runtime = Runtime.getRuntime();
+                runtime.removeShutdownHook(shutdownHook);
+            } catch (Throwable ignored) {
+            }
+        }
+    }
+
+    private HiccupRecorder warmupAndStartSampling(HiccupRecorder hiccupRecorder,
+                                                  final SingleWriterRecorder recorder,
+                                                  final long jvmStartTime) throws InterruptedException {
+        if (config.startDelayMs > 0) {
+            hiccupRecorder.start();
+            while (config.startDelayMs > System.currentTimeMillis() - jvmStartTime) {
+                Thread.sleep(100);
+            }
+            hiccupRecorder.terminate();
+            hiccupRecorder.join();
+
+            recorder.reset();
+            hiccupRecorder = new HiccupRecorder(recorder, config.allocateObjects);
+        }
+        hiccupRecorder.start();
+        return hiccupRecorder;
+    }
+
+    private void sampleIntervals(final HiccupRecorder hiccupRecorder,
+                                 final SingleWriterRecorder recorder,
+                                 final long startTime) throws InterruptedException {
+        long nextReportingTime = startTime + config.reportingIntervalMs;
+        long intervalStartTimeMsec = 0;
+        long now = System.currentTimeMillis();
+        Histogram intervalHistogram = null;
+
+        while ((now >= 0) && ((config.runTimeMs == 0) || (config.runTimeMs >= now - startTime))) {
+            now = hiccupRecorder.getCurrentTimeMsecWithDelay(nextReportingTime);
+            if (now >= nextReportingTime) {
+                intervalHistogram = recorder.getIntervalHistogram(intervalHistogram);
+                while (now >= nextReportingTime) {
+                    nextReportingTime += config.reportingIntervalMs;
+                }
+                if (config.inputFileName != null) {
+                    intervalHistogram.setStartTimeStamp(intervalStartTimeMsec);
+                    intervalHistogram.setEndTimeStamp(now);
+                    intervalStartTimeMsec = now;
+                }
+                if (intervalHistogram.getTotalCount() > 0) {
+                    histogramLogWriter.outputIntervalHistogram(intervalHistogram);
+                    log.flush();
+                }
+            }
+        }
+    }
+
+    private void cleanupRecorder(final HiccupRecorder hiccupRecorder) {
+        try {
+            hiccupRecorder.terminate();
+            hiccupRecorder.join();
+        } catch (InterruptedException e) {
+            if (config.verbose) {
+                log.println("# HiccupMeter terminate/join interrupted");
+            }
+        } finally {
+            if (log != null) {
+                log.flush();
+            }
+        }
+    }
+
+    @Override
+    public void run() {
+        final SingleWriterRecorder recorder = new SingleWriterRecorder(
+                config.lowestTrackableValue,
+                config.highestTrackableValue,
+                config.numberOfSignificantValueDigits
+        );
+
+        final RuntimeMXBean runtimeBean = ManagementFactory.getRuntimeMXBean();
+        final long uptimeAtInitialStartTime = runtimeBean.getUptime();
+        final long now = System.currentTimeMillis();
+        final long jvmStartTime = now - uptimeAtInitialStartTime;
+
+        HiccupRecorder hiccupRecorder = initHiccupRecorder(recorder);
+
+        histogramLogWriter.outputComment("[Logged with " + getVersionString() + "]");
+        histogramLogWriter.outputLogFormatVersion();
+
+        final Thread shutdownHook = registerShutdownHook(recorder);
 
         try {
             final long startTime;
+            long reportingStartTime = jvmStartTime;
 
             if (config.inputFileName == null) {
-                // Normal operating mode:
-                if (config.startDelayMs > 0) {
-                    // Run hiccup recorder during startDelayMs time to let code warm up:
-                    hiccupRecorder.start();
-                    while (config.startDelayMs > System.currentTimeMillis() - jvmStartTime) {
-                        Thread.sleep(100);
-                    }
-                    hiccupRecorder.terminate();
-                    hiccupRecorder.join();
-
-                    recorder.reset();
-                    hiccupRecorder = new HiccupRecorder(recorder, config.allocateObjects);
-                }
-                hiccupRecorder.start();
+                hiccupRecorder = warmupAndStartSampling(hiccupRecorder, recorder, jvmStartTime);
                 startTime = System.currentTimeMillis();
                 if (config.startTimeAtZero) {
                     reportingStartTime = startTime;
                 }
-
                 histogramLogWriter.outputStartTime(reportingStartTime);
                 histogramLogWriter.setBaseTime(reportingStartTime);
-
             } else {
-                // Reading from input file, not sampling ourselves...:
                 hiccupRecorder.start();
-                now = reportingStartTime = hiccupRecorder.getCurrentTimeMsecWithDelay(0);
-
-                while (config.startDelayMs > now - reportingStartTime) {
-                    now = hiccupRecorder.getCurrentTimeMsecWithDelay(0);
+                long inputNow = reportingStartTime = hiccupRecorder.getCurrentTimeMsecWithDelay(0);
+                while (config.startDelayMs > inputNow - reportingStartTime) {
+                    inputNow = hiccupRecorder.getCurrentTimeMsecWithDelay(0);
                 }
-
-                startTime = now;
-
+                startTime = inputNow;
                 histogramLogWriter.outputComment("[Data read from input file \"" + config.inputFileName + "\" at " + new Date() + "]");
             }
 
             histogramLogWriter.outputLegend();
             log.flush();
 
-            long nextReportingTime = startTime + config.reportingIntervalMs;
-            long intervalStartTimeMsec = 0;
+            sampleIntervals(hiccupRecorder, recorder, startTime);
 
-            while ((now >= 0) && ((config.runTimeMs == 0) || (config.runTimeMs >= now - startTime))) {
-                now = hiccupRecorder.getCurrentTimeMsecWithDelay(nextReportingTime); // could return -1 to indicate termination
-                if (now >= nextReportingTime) {
-                    // Get the latest interval histogram and give the recorder a fresh Histogram for the next interval
-                    intervalHistogram = recorder.getIntervalHistogram(intervalHistogram);
-
-                    while (now >= nextReportingTime) {
-                        nextReportingTime += config.reportingIntervalMs;
-                    }
-
-                    if (config.inputFileName != null) {
-                        // When read from input file, use timestamps from file input for start/end of log intervals:
-                        intervalHistogram.setStartTimeStamp(intervalStartTimeMsec);
-                        intervalHistogram.setEndTimeStamp(now);
-                        intervalStartTimeMsec = now;
-                    }
-
-                    if (intervalHistogram.getTotalCount() > 0) {
-                        histogramLogWriter.outputIntervalHistogram(intervalHistogram);
-                        log.flush();
-                    }
-                }
-            }
         } catch (InterruptedException e) {
             if (config.verbose) {
                 log.println("# HiccupMeter terminating...");
             }
         } finally {
-            if (shutdownHook != null) {
-                try {
-                    Runtime.getRuntime().removeShutdownHook(shutdownHook);
-                } catch (Throwable ignored) {
-                }
-            }
-            try {
-                hiccupRecorder.terminate();
-                hiccupRecorder.join();
-            } catch (InterruptedException e) {
-                if (config.verbose) {
-                    log.println("# HiccupMeter terminate/join interrupted");
-                }
-            } finally {
-                if (log != null) {
-                    log.flush();
-                }
-            }
+            unregisterShutdownHook(shutdownHook);
+            cleanupRecorder(hiccupRecorder);
         }
     }
 
