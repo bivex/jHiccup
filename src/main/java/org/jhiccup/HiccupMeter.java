@@ -176,7 +176,7 @@ public class HiccupMeter extends Thread {
         public boolean startTimeAtZero = false;
 
         public long lowestTrackableValue = 1000L * 20L; // default to ~20usec best-case resolution
-        public long highestTrackableValue = 30 * 24 * 3600 * 1000L * 1000L * 1000L; // 1 Month
+        public long highestTrackableValue = 3600L * 1000L * 1000L * 1000L; // 1 Hour max trackable pause per interval
         public int numberOfSignificantValueDigits = 2;
 
         public boolean error = false;
