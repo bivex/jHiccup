@@ -672,6 +672,28 @@ public class HiccupMeter extends Thread {
         histogramLogWriter.outputComment("[Logged with " + getVersionString() + "]");
         histogramLogWriter.outputLogFormatVersion();
 
+        Thread shutdownHook = null;
+        try {
+            final Thread hook = new Thread(new Runnable() {
+                @Override
+                public void run() {
+                    try {
+                        Histogram finalHistogram = recorder.getIntervalHistogram();
+                        if (finalHistogram != null && finalHistogram.getTotalCount() > 0) {
+                            histogramLogWriter.outputIntervalHistogram(finalHistogram);
+                        }
+                        if (log != null) {
+                            log.flush();
+                        }
+                    } catch (Throwable ignored) {
+                    }
+                }
+            }, "HiccupMeterShutdownHook");
+            Runtime.getRuntime().addShutdownHook(hook);
+            shutdownHook = hook;
+        } catch (Throwable ignored) {
+        }
+
         try {
             final long startTime;
 
@@ -713,6 +735,7 @@ public class HiccupMeter extends Thread {
             }
 
             histogramLogWriter.outputLegend();
+            log.flush();
 
             long nextReportingTime = startTime + config.reportingIntervalMs;
             long intervalStartTimeMsec = 0;
@@ -736,6 +759,7 @@ public class HiccupMeter extends Thread {
 
                     if (intervalHistogram.getTotalCount() > 0) {
                         histogramLogWriter.outputIntervalHistogram(intervalHistogram);
+                        log.flush();
                     }
                 }
             }
@@ -743,14 +767,24 @@ public class HiccupMeter extends Thread {
             if (config.verbose) {
                 log.println("# HiccupMeter terminating...");
             }
-        }
-
-        try {
-            hiccupRecorder.terminate();
-            hiccupRecorder.join();
-        } catch (InterruptedException e) {
-            if (config.verbose) {
-                log.println("# HiccupMeter terminate/join interrupted");
+        } finally {
+            if (shutdownHook != null) {
+                try {
+                    Runtime.getRuntime().removeShutdownHook(shutdownHook);
+                } catch (Throwable ignored) {
+                }
+            }
+            try {
+                hiccupRecorder.terminate();
+                hiccupRecorder.join();
+            } catch (InterruptedException e) {
+                if (config.verbose) {
+                    log.println("# HiccupMeter terminate/join interrupted");
+                }
+            } finally {
+                if (log != null) {
+                    log.flush();
+                }
             }
         }
     }

@@ -1,30 +1,46 @@
-/*
- * To change this license header, choose License Headers in Project Properties.
- * To change this template file, choose Tools | Templates
- * and open the template in the editor.
- */
 package org.jhiccup;
 
-import java.lang.management.ManagementFactory;
+import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 
-/**
- *
- * @author sgrinev
- */
+import java.io.File;
+import java.lang.management.ManagementFactory;
+
 public class HiccupMeterTest {
- 
+
     @Before
     public void setUp() {
         System.out.println("Vendor = " + System.getProperty("java.vendor"));
         System.out.println("Version = " + System.getProperty("java.version"));
     }
-    
+
     @Test
-    public void testAttach() {
+    public void testAttachPidRetrieval() {
         String pid = ManagementFactory.getRuntimeMXBean().getName().split("@")[0];
         System.out.println("My pid is " + pid);
-        //HiccupMeterAttacher.main(new String[]{"-p", pid, "-j", "/Users/sgrinev/ws/jHiccup/jHiccup.jar"});
+        Assert.assertNotNull(pid);
+        Assert.assertFalse(pid.isEmpty());
+    }
+
+    @Test
+    public void testMeterLifecycleAndLogGeneration() throws Exception {
+        File tempLog = File.createTempFile("hiccup_test", ".hlog");
+        tempLog.deleteOnExit();
+
+        String[] args = new String[]{
+                "-d", "0",
+                "-i", "50",
+                "-r", "1",
+                "-t", "200",
+                "-l", tempLog.getAbsolutePath()
+        };
+
+        HiccupMeter meter = HiccupMeter.commonMain(args, false);
+        Assert.assertNotNull(meter);
+
+        meter.join(3000);
+
+        Assert.assertTrue("Log file should exist and be non-empty", tempLog.exists() && tempLog.length() > 0);
     }
 }
